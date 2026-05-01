@@ -5,7 +5,6 @@ import streamlit as st
 import gdown
 from PIL import Image
 import cv2
-import matplotlib.pyplot as plt
 
 # ==============================
 # CONFIG
@@ -15,11 +14,10 @@ MODEL_PATH = "best_model.keras"
 FILE_ID = "1YLUblgBMrSgZZKSPGEbF0FpzKQpCW-Mt"
 
 CLASS_NAMES = ['glioma', 'meningioma', 'notumor', 'other', 'pituitary']
-
 IMG_SIZE = (224, 224)
 
 # ==============================
-# DOWNLOAD MODEL
+# LOAD MODEL (FIXED)
 # ==============================
 
 @st.cache_resource
@@ -29,13 +27,22 @@ def load_model():
             url = f"https://drive.google.com/uc?id={FILE_ID}"
             gdown.download(url, MODEL_PATH, quiet=False)
 
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    try:
+        model = tf.keras.models.load_model(
+            MODEL_PATH,
+            compile=False,
+            safe_mode=False   # 🔥 CRITICAL FIX
+        )
+    except Exception as e:
+        st.error(f"Model loading failed: {e}")
+        st.stop()
+
     return model
 
 model = load_model()
 
 # ==============================
-# PREPROCESSING (VGG)
+# PREPROCESS (VGG)
 # ==============================
 
 def preprocess_image(img):
@@ -50,33 +57,33 @@ def preprocess_image(img):
     img[..., 1] -= 116.779
     img[..., 2] -= 123.68
 
-    img = np.expand_dims(img, axis=0)
-    return img
+    return np.expand_dims(img, axis=0)
 
 # ==============================
 # GRADCAM
 # ==============================
 
-def make_gradcam(model, img_array, last_conv_layer_name="block5_conv3"):
+def make_gradcam(model, img_array, layer_name="block5_conv3"):
     grad_model = tf.keras.models.Model(
         [model.inputs],
-        [model.get_layer(last_conv_layer_name).output, model.output]
+        [model.get_layer(layer_name).output, model.output]
     )
 
     with tf.GradientTape() as tape:
-        conv_outputs, predictions = grad_model(img_array)
-        class_idx = tf.argmax(predictions[0])
-        loss = predictions[:, class_idx]
+        conv_outputs, preds = grad_model(img_array)
+        class_idx = tf.argmax(preds[0])
+        loss = preds[:, class_idx]
 
     grads = tape.gradient(loss, conv_outputs)
-
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_outputs = conv_outputs[0]
 
+    conv_outputs = conv_outputs[0]
     heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
 
-    heatmap = np.maximum(heatmap, 0) / np.max(heatmap)
+    heatmap = np.maximum(heatmap, 0)
+    heatmap /= np.max(heatmap) + 1e-8
+
     return heatmap.numpy()
 
 # ==============================
@@ -91,11 +98,10 @@ st.write("Upload an MRI image to predict tumor type.")
 uploaded_file = st.file_uploader("Upload MRI Image", type=["jpg", "jpeg", "png"])
 
 # ==============================
-# MAIN LOGIC
+# MAIN
 # ==============================
 
 if uploaded_file:
-
     try:
         image = Image.open(uploaded_file).convert("RGB")
 
@@ -122,7 +128,7 @@ if uploaded_file:
                 st.progress(float(preds[i]))
 
         # ==============================
-        # GradCAM Visualization
+        # GradCAM
         # ==============================
 
         heatmap = make_gradcam(model, img_array)
@@ -133,10 +139,10 @@ if uploaded_file:
         img = np.array(image.resize(IMG_SIZE))
 
         heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-        superimposed_img = heatmap * 0.4 + img
+        overlay = heatmap * 0.4 + img
 
         st.subheader("GradCAM Visualization")
-        st.image(superimposed_img.astype(np.uint8), use_container_width=True)
+        st.image(overlay.astype(np.uint8), use_container_width=True)
 
     except Exception as e:
         st.error(f"Error processing image: {e}")
@@ -146,4 +152,4 @@ if uploaded_file:
 # ==============================
 
 st.markdown("---")
-st.markdown("⚠️ This tool is for research purposes only. Not for clinical use.")
+st.markdown("⚠️ For research purposes only. Not for clinical use.")
