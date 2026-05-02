@@ -5,19 +5,14 @@ from PIL import Image
 import requests
 import os
 
-# ---------------------------
-# CONFIG
-# ---------------------------
-MODEL_URL = "https://drive.google.com/uc?id=177UheL7E9YubKxQh74n1KokLQUFCdXcE"
-MODEL_PATH = "final_model.h5"
+# ---------------- CONFIG ----------------
+MODEL_URL = "https://drive.google.com/uc?id=1vc55Y2litNzNXgXl6LaO4iE3BuuJnu2n"
+MODEL_PATH = "model.h5"
 
 CLASS_NAMES = ['glioma', 'meningioma', 'notumor', 'other', 'pituitary']
-
 IMG_SIZE = 224
 
-# ---------------------------
-# DOWNLOAD MODEL (if not exists)
-# ---------------------------
+# ---------------- DOWNLOAD MODEL ----------------
 @st.cache_resource
 def load_model():
     if not os.path.exists(MODEL_PATH):
@@ -26,44 +21,41 @@ def load_model():
             with open(MODEL_PATH, "wb") as f:
                 f.write(r.content)
 
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    # 🔥 IMPORTANT FIX
+    model = tf.keras.models.load_model(
+        MODEL_PATH,
+        compile=False
+    )
     return model
 
 model = load_model()
 
-# ---------------------------
-# UI
-# ---------------------------
-st.set_page_config(page_title="Brain Tumor Classifier", layout="centered")
-
+# ---------------- UI ----------------
+st.set_page_config(page_title="Brain Tumor Classifier")
 st.title("🧠 Brain Tumor Classification")
-st.write("Upload an MRI image to predict tumor type")
 
-uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload MRI Image", type=["jpg", "png", "jpeg"])
 
-# ---------------------------
-# PREDICTION
-# ---------------------------
-def preprocess_image(image):
-    image = image.resize((IMG_SIZE, IMG_SIZE))
-    img_array = np.array(image) / 255.0
-    return np.expand_dims(img_array, axis=0)
+# ---------------- PREPROCESS ----------------
+def preprocess(img):
+    img = img.resize((IMG_SIZE, IMG_SIZE))
+    img = np.array(img) / 255.0
+    return np.expand_dims(img, axis=0)
 
-if uploaded_file is not None:
+# ---------------- PREDICT ----------------
+if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.image(image, caption="Uploaded Image")
 
-    img = preprocess_image(image)
+    x = preprocess(image)
+    preds = model.predict(x)[0]
 
-    prediction = model.predict(img)[0]
-    predicted_class = CLASS_NAMES[np.argmax(prediction)]
-    confidence = np.max(prediction)
+    idx = np.argmax(preds)
+    conf = preds[idx]
 
-    st.subheader("Prediction")
-    st.write(f"🧾 Class: **{predicted_class}**")
-    st.write(f"📊 Confidence: **{confidence*100:.2f}%**")
+    st.success(f"Prediction: {CLASS_NAMES[idx]}")
+    st.write(f"Confidence: {conf*100:.2f}%")
 
-    # Probabilities
-    st.subheader("Class Probabilities")
-    for i, cls in enumerate(CLASS_NAMES):
-        st.write(f"{cls}: {prediction[i]*100:.2f}%")
+    st.subheader("All Probabilities")
+    for i, c in enumerate(CLASS_NAMES):
+        st.write(f"{c}: {preds[i]*100:.2f}%")
