@@ -1,0 +1,13 @@
+{
+  "overall_accuracy": 0.93,
+  "macro_auc": 0.98,
+  "kappa": 0.91,
+  "classes": ["glioma", "meningioma", "notumor", "other", "pituitary"],
+  "per_class_accuracy": {
+    "glioma":     0.95,
+    "meningioma": 0.90,
+    "notumor":    0.98,
+    "other":      0.88,
+    "pituitary":  0.96
+  }
+}
