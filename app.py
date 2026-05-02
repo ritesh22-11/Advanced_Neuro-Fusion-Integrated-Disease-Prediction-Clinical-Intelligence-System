@@ -160,7 +160,14 @@ def load_everything():
 
     # ── Load model ────────────────────────────
     try:
-        model = tf.keras.models.load_model(MODEL_PATH)
+        # compile=False avoids Keras version mismatch on optimizer/loss config
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        # Recompile with current Keras version
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+            loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
+            metrics=["accuracy"]
+        )
     except Exception as e:
         st.error(f"Model load error: {e}")
         return None, None, None
