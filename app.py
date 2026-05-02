@@ -1,146 +1,69 @@
-import os
+import streamlit as st
 import numpy as np
 import tensorflow as tf
-import streamlit as st
-import gdown
 from PIL import Image
-import cv2
+import requests
+import os
 
-# ==============================
+# ---------------------------
 # CONFIG
-# ==============================
-
-MODEL_PATH = "fixed_model.h5"
-FILE_ID = "14tHZaechnZVyKLu9lbiXD-Og2szJkl5c"
+# ---------------------------
+MODEL_URL = "https://drive.google.com/uc?id=177UheL7E9YubKxQh74n1KokLQUFCdXcE"
+MODEL_PATH = "final_model.h5"
 
 CLASS_NAMES = ['glioma', 'meningioma', 'notumor', 'other', 'pituitary']
-IMG_SIZE = (224, 224)
 
-# ==============================
-# LOAD MODEL
-# ==============================
+IMG_SIZE = 224
 
+# ---------------------------
+# DOWNLOAD MODEL (if not exists)
+# ---------------------------
 @st.cache_resource
 def load_model():
     if not os.path.exists(MODEL_PATH):
-        with st.spinner("Downloading model... ⏳"):
-            url = f"https://drive.google.com/uc?id={FILE_ID}"
-            gdown.download(url, MODEL_PATH, quiet=False)
+        with st.spinner("Downloading model..."):
+            r = requests.get(MODEL_URL)
+            with open(MODEL_PATH, "wb") as f:
+                f.write(r.content)
 
     model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     return model
 
 model = load_model()
 
-# ==============================
-# PREPROCESS (VGG STYLE)
-# ==============================
-
-def preprocess_image(img):
-    img = img.resize(IMG_SIZE)
-    img = np.array(img).astype(np.float32)
-
-    # RGB → BGR
-    img = img[..., ::-1]
-
-    # VGG mean subtraction
-    img[..., 0] -= 103.939
-    img[..., 1] -= 116.779
-    img[..., 2] -= 123.68
-
-    return np.expand_dims(img, axis=0)
-
-# ==============================
-# GRADCAM
-# ==============================
-
-def make_gradcam(model, img_array, layer_name="block5_conv3"):
-    grad_model = tf.keras.models.Model(
-        [model.inputs],
-        [model.get_layer(layer_name).output, model.output]
-    )
-
-    with tf.GradientTape() as tape:
-        conv_outputs, preds = grad_model(img_array)
-        class_idx = tf.argmax(preds[0])
-        loss = preds[:, class_idx]
-
-    grads = tape.gradient(loss, conv_outputs)
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-
-    conv_outputs = conv_outputs[0]
-    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
-    heatmap = tf.squeeze(heatmap)
-
-    heatmap = np.maximum(heatmap, 0)
-    heatmap /= np.max(heatmap) + 1e-8
-
-    return heatmap.numpy()
-
-# ==============================
+# ---------------------------
 # UI
-# ==============================
+# ---------------------------
+st.set_page_config(page_title="Brain Tumor Classifier", layout="centered")
 
-st.set_page_config(page_title="Brain Tumor Classifier", layout="wide")
+st.title("🧠 Brain Tumor Classification")
+st.write("Upload an MRI image to predict tumor type")
 
-st.title("🧠 Brain Tumor Classification System")
-st.write("Upload an MRI image to predict tumor type.")
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
-uploaded_file = st.file_uploader("Upload MRI Image", type=["jpg", "jpeg", "png"])
+# ---------------------------
+# PREDICTION
+# ---------------------------
+def preprocess_image(image):
+    image = image.resize((IMG_SIZE, IMG_SIZE))
+    img_array = np.array(image) / 255.0
+    return np.expand_dims(img_array, axis=0)
 
-# ==============================
-# MAIN
-# ==============================
+if uploaded_file is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_container_width=True)
 
-if uploaded_file:
-    try:
-        image = Image.open(uploaded_file).convert("RGB")
+    img = preprocess_image(image)
 
-        col1, col2 = st.columns(2)
+    prediction = model.predict(img)[0]
+    predicted_class = CLASS_NAMES[np.argmax(prediction)]
+    confidence = np.max(prediction)
 
-        with col1:
-            st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.subheader("Prediction")
+    st.write(f"🧾 Class: **{predicted_class}**")
+    st.write(f"📊 Confidence: **{confidence*100:.2f}%**")
 
-        img_array = preprocess_image(image)
-
-        with st.spinner("Analyzing image..."):
-            preds = model.predict(img_array)[0]
-
-        pred_class = CLASS_NAMES[np.argmax(preds)]
-        confidence = np.max(preds)
-
-        with col2:
-            st.subheader("Prediction")
-            st.success(f"{pred_class.upper()} ({confidence*100:.2f}%)")
-
-            st.subheader("Confidence Scores")
-            for i, cls in enumerate(CLASS_NAMES):
-                st.write(f"{cls}: {preds[i]*100:.2f}%")
-                st.progress(float(preds[i]))
-
-        # ==============================
-        # GradCAM
-        # ==============================
-
-        heatmap = make_gradcam(model, img_array)
-
-        heatmap = cv2.resize(heatmap, IMG_SIZE)
-        heatmap = np.uint8(255 * heatmap)
-
-        img = np.array(image.resize(IMG_SIZE))
-
-        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-        overlay = heatmap * 0.4 + img
-
-        st.subheader("GradCAM Visualization")
-        st.image(overlay.astype(np.uint8), use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Error processing image: {e}")
-
-# ==============================
-# FOOTER
-# ==============================
-
-st.markdown("---")
-st.markdown("⚠️ For research purposes only. Not for clinical use.")
+    # Probabilities
+    st.subheader("Class Probabilities")
+    for i, cls in enumerate(CLASS_NAMES):
+        st.write(f"{cls}: {prediction[i]*100:.2f}%")
