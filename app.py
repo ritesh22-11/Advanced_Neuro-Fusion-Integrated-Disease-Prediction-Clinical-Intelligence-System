@@ -10,14 +10,14 @@ import cv2
 # CONFIG
 # ==============================
 
-MODEL_PATH = "best_model.keras"
-FILE_ID = "1YLUblgBMrSgZZKSPGEbF0FpzKQpCW-Mt"
+MODEL_PATH = "fixed_model.h5"
+FILE_ID = "14tHZaechnZVyKLu9lbiXD-Og2szJkl5c"
 
 CLASS_NAMES = ['glioma', 'meningioma', 'notumor', 'other', 'pituitary']
 IMG_SIZE = (224, 224)
 
 # ==============================
-# LOAD MODEL (FIXED)
+# LOAD MODEL
 # ==============================
 
 @st.cache_resource
@@ -27,22 +27,13 @@ def load_model():
             url = f"https://drive.google.com/uc?id={FILE_ID}"
             gdown.download(url, MODEL_PATH, quiet=False)
 
-    try:
-        model = tf.keras.models.load_model(
-            MODEL_PATH,
-            compile=False,
-            safe_mode=False   # 🔥 CRITICAL FIX
-        )
-    except Exception as e:
-        st.error(f"Model loading failed: {e}")
-        st.stop()
-
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
     return model
 
 model = load_model()
 
 # ==============================
-# PREPROCESS (VGG)
+# PREPROCESS (VGG STYLE)
 # ==============================
 
 def preprocess_image(img):
